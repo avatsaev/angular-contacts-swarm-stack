@@ -1,0 +1,91 @@
+---
+version: "3.3"
+
+services:
+  db-primary:
+    hostname: 'db-primary'
+    image: crunchydata/crunchy-postgres:centos7-10.3-1.8.2
+    environment:
+    - PGHOST=/tmp
+    - MAX_CONNECTIONS=10
+    - MAX_WAL_SENDERS=5
+    - PG_MODE=primary
+    - PG_PRIMARY_USER=primaryuser
+    - PG_PRIMARY_PASSWORD=password
+    - PG_DATABASE=contacts_dev
+    - PG_USER=contacts_dev
+    - PG_PASSWORD=contacts_dev_pass
+    - PG_ROOT_PASSWORD=password
+    - PG_PRIMARY_PORT=5432
+    volumes:
+    - db-primary-vol:/pgdata
+    ports:
+    - "5432:5432"
+    networks:
+    - db-network
+    deploy:
+      placement:
+        constraints:
+        - node.role == manager
+  replica:
+    image: crunchydata/crunchy-postgres:centos7-10.3-1.8.2
+    environment:
+    - PGHOST=/tmp
+    - MAX_CONNECTIONS=10
+    - MAX_WAL_SENDERS=5
+    - PG_MODE=replica
+    - PG_PRIMARY_HOST=db-primary
+    - PG_PRIMARY_PORT=5432
+    - PG_PRIMARY_USER=primaryuser
+    - PG_PRIMARY_PASSWORD=password
+    - PG_DATABASE=contacts_dev
+    - PG_USER=contacts_dev
+    - PG_PASSWORD=contacts_dev_pass
+    - PG_ROOT_PASSWORD=password
+    volumes:
+    - db-replica-vol:/pgdata
+    ports:
+    - "5432"
+    networks:
+    - db-network
+    deploy:
+      mode: global
+      placement:
+        constraints:
+        - node.role == worker
+
+
+  api:
+    image: avatsaev/angular-contacts-api:dev
+    restart: always
+    ports:
+    - 3000:3000
+    deploy:
+      mode: global
+      placement:
+        constraints:
+        - node.role == worker
+    depends_on:
+    - db-primary
+    networks:
+    - db-network
+    environment:
+      DB_URL: 'postgres://contacts_dev:contacts_dev_pass@db-primary/contacts_dev'
+
+  client:
+    image: avatsaev/angular-contacts-client:dev
+    restart: always
+    ports:
+    - 4000:80
+    deploy:
+      mode: global
+      placement:
+        constraints:
+        - node.role == worker
+
+networks:
+  db-network:
+
+volumes:
+  db-primary-vol:
+  db-replica-vol:
