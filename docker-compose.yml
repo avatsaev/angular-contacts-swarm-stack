@@ -113,7 +113,7 @@ services:
   #################################################################################
 
   client:
-    image: avatsaev/angular-contacts-client:socket
+    image: avatsaev/angular-contacts-client:dev
     ports:
     - 4000:80
     networks:
