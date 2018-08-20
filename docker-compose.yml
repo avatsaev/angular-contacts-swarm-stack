@@ -1,9 +1,9 @@
----
-version: "3.3"
+version: "3.6"
 
 services:
+
   db-primary:
-    hostname: 'db-primary'
+    hostname: db-primary
     image: crunchydata/crunchy-postgres:centos7-10.3-1.8.2
     environment:
     - PGHOST=/tmp
@@ -18,16 +18,22 @@ services:
     - PG_ROOT_PASSWORD=password
     - PG_PRIMARY_PORT=5432
     volumes:
-    - db-primary-vol:/pgdata
+    - db-primary-vol:/pgdata # storing data on a mapped network volume
     ports:
-    - "5432:5432"
+    - 5432
     networks:
-    - db-network
+    - db-net
     deploy:
+      update_config:
+        failure_action: rollback
+        max_failure_ratio: .3
       placement:
         constraints:
         - node.role == manager
-  replica:
+
+  #####################################################################
+
+  db-replica:
     image: crunchydata/crunchy-postgres:centos7-10.3-1.8.2
     environment:
     - PGHOST=/tmp
@@ -43,49 +49,96 @@ services:
     - PG_PASSWORD=contacts_dev_pass
     - PG_ROOT_PASSWORD=password
     volumes:
-    - db-replica-vol:/pgdata
+    - db-replica-vol:/pgdata # replicated data doesn't need to be stored on a mapped volume
     ports:
-    - "5432"
+    - 5432
     networks:
-    - db-network
+    - db-net
     deploy:
       mode: global
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 2
+        failure_action: rollback
+        max_failure_ratio: .3
       placement:
         constraints:
         - node.role == worker
 
+  ##########################################################################
+
+  redis:
+    image: redis:4.0.11-alpine
+    ports:
+    - 6379:6379
+    volumes:
+    - redis-vol:/data
+    networks:
+    - redis-net
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+        - node.role == manager
+
+  ################################################################################
 
   api:
     image: avatsaev/angular-contacts-api:dev
-    restart: always
     ports:
     - 3000:3000
     deploy:
       mode: global
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 2
+        failure_action: rollback
+        max_failure_ratio: .3
       placement:
         constraints:
         - node.role == worker
-    depends_on:
-    - db-primary
     networks:
-    - db-network
+    - db-net
+    - backend-net
+    - redis-net
     environment:
-      DB_URL: 'postgres://contacts_dev:contacts_dev_pass@db-primary/contacts_dev'
+      DB_MASTER_URL: postgres://contacts_dev:contacts_dev_pass@db-primary/contacts_dev
+      DB_REPLICAS_URL: postgres://contacts_dev:contacts_dev_pass@db-replica/contacts_dev
+      REDIS_HOST: redis
+
+  #################################################################################
 
   client:
-    image: avatsaev/angular-contacts-client:dev
-    restart: always
+    image: avatsaev/angular-contacts-client:socket
     ports:
     - 4000:80
+    networks:
+    - frontend-net
     deploy:
       mode: global
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 2
+        failure_action: rollback
+        max_failure_ratio: .3
       placement:
         constraints:
         - node.role == worker
 
+##################################################################
+
 networks:
-  db-network:
+  db-net:
+  frontend-net:
+  backend-net:
+  redis-net:
 
 volumes:
   db-primary-vol:
   db-replica-vol:
+  redis-vol:
